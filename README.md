@@ -24,16 +24,14 @@ Until `SHEET_URL` is set, the button shows "Signups open soon."
 ## Design
 
 The page is part of the main site (jergusino.github.io / jergusino.com): same header with
-the logo, same footer, Slovak copy.
+the logo, same menu and closing slide, Slovak copy.
 
 - `assets/css/main.css` is a copy of the main site's stylesheet. If the main site's look
   changes, copy its `assets/css/main.css` here again. `assets/css/newsletter.css` adds the form.
-- `assets/fonts/` and `assets/img/wordmark.svg` are the main site's fonts and logo.
-- Links in the menu (`/`, `/projects/`) point to the main site.
+- `assets/fonts/` (Bricolage Grotesque, DM Mono) and `assets/img/logo-*.svg` are the main site's fonts and logo.
+- Links in the menu (`/`, `/plagaty/`, `/spoluprace/`, `/kontakt/`) point to the main site.
 
-Licences: Borisna is a demo font, free for private, non-profit use only. Before you sell
-anything through this list, buy the commercial licence from Koplexs Studio.
-Check that your Slithen and Edwardian Script licences cover web use.
+Licences: the page's fonts (Bricolage Grotesque, DM Mono) are open source (SIL OFL).
 
 ## Privacy and anti-spam rules the page follows
 

@@ -34,3 +34,13 @@ the logo, same footer, Slovak copy.
 Licences: Borisna is a demo font, free for private, non-profit use only. Before you sell
 anything through this list, buy the commercial licence from Koplexs Studio.
 Check that your Slithen and Edwardian Script licences cover web use.
+
+## Privacy and anti-spam rules the page follows
+
+- **Age and consent:** the form has a required checkbox ("I'm at least 16 and want emails"). 16 is Slovakia's age of digital consent (GDPR art. 8). The script refuses newsletter signups without it, and saves the exact consent text with the email.
+- **No sharing:** the list is not shared with anyone. If you ever want to share it, that needs its own separate, unticked checkbox that names the partners, and an update to `/sukromie/` on the main site.
+- **Unsubscribe:** every email the script sends ends with a footer: why they get it, a one-click unsubscribe link, your name/address and a link to `/sukromie/`. Sent through Brevo, emails also carry the `List-Unsubscribe` header, so Gmail and Apple Mail show their own Unsubscribe button. Clicking it deletes the address from every tab. If you send the weekly newsletter from another tool, that tool must add an unsubscribe link and your address too (Brevo campaigns do this for you).
+- **Your address:** set `SENDER_ADDRESS` at the top of `Code.gs` (a P.O. box is fine). Anti-spam law wants every marketing email to say who sent it.
+- **Cleanup:** signups not confirmed within 48 hours are deleted automatically.
+
+After changing `Code.gs`, paste it into Apps Script again and **Deploy → Manage deployments → ✎ → Version: New version → Deploy** (keeps the same `/exec` URL).

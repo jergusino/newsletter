@@ -28,7 +28,7 @@
       <img src="assets/img/wordmark.svg" alt="" width="1020" height="262">
     </a>
     <nav class="top-nav" aria-label="Hlavná navigácia">
-      <a href="/projects/">projekty <svg class="arr" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true" focusable="false"><path d="M0 5h18V0l6 6-6 6V7H0z"/></svg></a>
+      <a href="/plagaty/">plagáty <svg class="arr" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true" focusable="false"><path d="M0 5h18V0l6 6-6 6V7H0z"/></svg></a>
       <a href="/kontakt/">kontakt</a>
     </nav>
   </header>
@@ -48,7 +48,7 @@
       <ul class="perks">
         <li><svg class="arr" viewBox="0 0 24 12" aria-hidden="true" focusable="false"><path d="M0 5h18V0l6 6-6 6V7H0z"/></svg><span>súbory zadarmo, hneď na použitie</span></li>
         <li><svg class="arr" viewBox="0 0 24 12" aria-hidden="true" focusable="false"><path d="M0 5h18V0l6 6-6 6V7H0z"/></svg><span>jeden krátky e-mail týždenne, nikdy viac</span></li>
-        <li><svg class="arr" viewBox="0 0 24 12" aria-hidden="true" focusable="false"><path d="M0 5h18V0l6 6-6 6V7H0z"/></svg><span>odhlásiš sa kedykoľvek, stačí odpísať „odhlásiť“</span></li>
+        <li><svg class="arr" viewBox="0 0 24 12" aria-hidden="true" focusable="false"><path d="M0 5h18V0l6 6-6 6V7H0z"/></svg><span>odhlásiš sa kedykoľvek, jedným klikom v&nbsp;každom e-maile</span></li>
       </ul>
 
       <form id="signup" class="signup" method="post" novalidate>
@@ -60,6 +60,10 @@
             <svg class="arr" viewBox="0 0 24 12" aria-hidden="true" focusable="false"><path d="M0 5h18V0l6 6-6 6V7H0z"/></svg>
           </button>
         </div>
+        <label class="consent" for="consent">
+          <input id="consent" name="consent" type="checkbox" required>
+          <span>Mám aspoň 16 rokov a&nbsp;chcem od Jergušina dostávať súbory a&nbsp;e-maily. Odhlásiť sa môžem kedykoľvek.</span>
+        </label>
         <div class="hp" aria-hidden="true"><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
         <p class="status" id="status" role="status" aria-live="polite"></p>
       </form>
@@ -67,7 +71,7 @@
     </div>
   </main>
 
-  <p class="fine" id="fine"><span>Najprv ti príde krátky e-mail, v ktorom potvrdíš, že si to ty. Tvoj e-mail môžem zdieľať s partnermi, s ktorými spolupracujem. Odhlásiť sa môžeš kedykoľvek.</span></p>
+  <p class="fine" id="fine"><span>Najprv ti príde krátky e-mail, v&nbsp;ktorom potvrdíš, že si to ty. Tvoj e-mail nikomu nedávam ani nepredávam. Ak do 48 hodín nepotvrdíš, zmažem ho. Viac v&nbsp;časti <a href="/sukromie/">Súkromie</a>.</span></p>
 
 <script>
   // Google Apps Script web app (see README.md). It saves the email as pending and sends the confirmation email.
@@ -86,23 +90,27 @@
     broken: "Niečo sa pokazilo na mojej strane. Skús to prosím neskôr.",
     offline: "Nepodarilo sa to odoslať. Skontroluj pripojenie na internet a skús to znova.",
     soon: "Prihlasovanie čoskoro spustím. Skús to o pár dní.",
+    consent: "Zaškrtni, prosím, že máš aspoň 16 rokov a súhlasíš s e-mailami.",
   };
   const show = (key, isError) => {
     status.classList.toggle("error", !!isError);
     status.textContent = messages[key];
   };
 
+  form.consent.addEventListener("change", () => { if (form.consent.checked && status.textContent === messages.consent) status.textContent = ""; });
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (form.website.value) return;
     const value = email.value.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) { show("invalid", true); email.focus(); return; }
+    if (!form.consent.checked) { show("consent", true); form.consent.focus(); return; }
     if (!SHEET_URL) { show("soon"); return; }
 
     button.disabled = true;
     label.textContent = "odosielam…";
     status.textContent = "";
-    const body = new URLSearchParams({ email: value, source: location.hostname || "local", consent: "Súhlasil s posielaním súborov a noviniek e-mailom a so zdieľaním e-mailu s partnermi" });
+    const body = new URLSearchParams({ email: value, source: location.hostname || "local", consent: "Zaškrtol: má aspoň 16 rokov, súhlasí so zasielaním súborov a e-mailov (jergusino.com/sukromie, 2026-11-14)", age16: "1" });
     try {
       let result = "pending", res = null;
       try {
@@ -114,7 +122,7 @@
       if (res) {
         try { result = (await res.json()).status; } catch (badReply) { result = "broken"; }
       }
-      if (result === "invalid" || result === "broken") { show(result, true); return; }
+      if (result === "invalid" || result === "broken" || result === "consent") { show(result, true); return; }
       form.classList.add("done");
       show(result === "already" ? "already" : "pending");
     } catch (err) {

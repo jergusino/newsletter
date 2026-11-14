@@ -15,16 +15,25 @@ const SITE_ROOT = "https://jergusino.github.io/"; // the main site
 const FROM_NAME = "Jergušino";
 const LINK_HOURS = 48;
 const TOOL_URL = "https://jergusino.com/font-tool/tool/"; // the Font Tool, sent to everyone who signs up on jergusino.com/font-tool/
+const PRIVACY_URL = "https://jergusino.com/sukromie/";
+// Your postal address, shown at the bottom of every email. Anti-spam laws (EU and US CAN-SPAM)
+// want the sender to be identifiable; a P.O. box is fine. Leave "" and only the name + website show.
+const SENDER_ADDRESS = "";
 
 // ---------- Web endpoints ----------
 
 function doPost(e) {
   const p = (e && e.parameter) || {};
+  // One-click unsubscribe from the mail app's "Unsubscribe" button (List-Unsubscribe-Post).
+  if (p.unsubscribe) return unsubscribe(p.unsubscribe, p.sig) ? json("unsubscribed") : json("invalid");
   const email = String(p.email || "").trim().toLowerCase();
   if (!/^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,24}$/.test(email)) return json("invalid");
 
   // The Font Tool page: always email the link to the tool, whether or not the address is already in the sheet.
   if (p.list === "font-tool") return sendTool(email, p);
+
+  // Newsletter consent needs the 16+ checkbox (Slovakia's age of digital consent, GDPR art. 8).
+  if (p.age16 !== "1") return json("consent");
 
   // Don't send the same person more than one confirmation email every 10 minutes.
   const cache = CacheService.getScriptCache();
@@ -37,6 +46,7 @@ function doPost(e) {
     if (listHas(mainSheet(book), email, "newsletter")) return json("already"); // already confirmed: no new email
 
     const pending = pendingSheet(book);
+    purgeExpired(pending);
     const token = Utilities.getUuid().replace(/-/g, "");
     addRow(pending, { "Signed up": new Date(), "Email": email, "Token": token, "Source": String(p.source || "").slice(0, 100), "Consent": String(p.consent || "").slice(0, 200) });
     sendConfirmation(email, token);
@@ -48,6 +58,12 @@ function doPost(e) {
 }
 
 function doGet(e) {
+  const unsub = e && e.parameter && e.parameter.unsubscribe;
+  if (unsub) {
+    return unsubscribe(unsub, e.parameter.sig)
+      ? page("hotovo", "Odhlásené", "Tvoj e-mail som zmazal zo zoznamu. Už ti nič nepošlem. Ak to bol omyl, prihlás sa znova na stránke.")
+      : page("ups", "Neplatný odkaz", "Tento odhlasovací odkaz nefunguje. Napíš mi a odhlásim ťa ručne.");
+  }
   const token = String((e && e.parameter && e.parameter.confirm) || "").replace(/[^a-f0-9]/gi, "");
   if (!token) {
     const book = SpreadsheetApp.openById(SHEET_ID);
@@ -97,7 +113,7 @@ function sendTool(email, p) {
   }
   const text =
     "Ahoj,\n\ntu je tvoj Font Tool: " + TOOL_URL + "\n\n" +
-    "Nahraj doň font (.ttf alebo .otf) a tool doň dorobí chýbajúce slovenské písmená. Font sa spracuje priamo v tvojom prehliadači.\n\nJergušino";
+    "Nahraj doň font (.ttf alebo .otf) a tool doň dorobí chýbajúce slovenské písmená. Font sa spracuje priamo v tvojom prehliadači.\n\nJergušino" + footerText(email);
   const html =
     '<div style="background:#060909;padding:32px 24px;font-family:Georgia,serif;color:#FAF1D6">' +
     '<img src="' + SITE_URL + 'assets/img/wordmark.svg" alt="Jergušino" width="150" style="display:block;width:150px;height:auto;border:0">' +
@@ -105,9 +121,67 @@ function sendTool(email, p) {
     '<p style="margin:0 0 24px;font-size:17px;line-height:1.5;color:#FAF1D6">Nahraj doň font (.ttf alebo .otf) a tool doň dorobí chýbajúce slovenské písmená z jeho vlastných častí. Font sa spracuje priamo v tvojom prehliadači.</p>' +
     '<p style="margin:0 0 24px"><a href="' + TOOL_URL + '" style="display:inline-block;border:2px solid #FAF1D6;padding:14px 22px;color:#FAF1D6;text-decoration:none;font-size:17px">otvoriť Font Tool <span style="color:#FFC600">&rarr;</span></a></p>' +
     '<p style="margin:0;font-size:14px;line-height:1.5;color:#FAF1D6">Odkaz si ulož, funguje stále.</p>' +
-    '</div>';
+    footerHtml(email) + '</div>';
   sendMail(email, "Tvoj Font Tool od Jergušina", text, html);
   return json("sent");
+}
+
+// ---------- Unsubscribe ----------
+
+// Every email carries a personal unsubscribe link. It is signed with a secret (kept in
+// Script properties, created on first use), so nobody can unsubscribe someone else.
+function unsubscribeUrl(email) {
+  return ScriptApp.getService().getUrl() + "?unsubscribe=" + encodeURIComponent(email) + "&sig=" + sign(email);
+}
+
+function sign(email) {
+  const props = PropertiesService.getScriptProperties();
+  let secret = props.getProperty("UNSUB_SECRET");
+  if (!secret) { secret = Utilities.getUuid() + Utilities.getUuid(); props.setProperty("UNSUB_SECRET", secret); }
+  return Utilities.computeHmacSha256Signature(String(email).trim().toLowerCase(), secret)
+    .map(b => ((b + 256) % 256).toString(16).padStart(2, "0")).join("").slice(0, 32);
+}
+
+// Deletes the address from every list and from Pending. Returns false if the link was tampered with.
+function unsubscribe(rawEmail, sig) {
+  const email = String(rawEmail || "").trim().toLowerCase();
+  if (!email || String(sig || "") !== sign(email)) return false;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const book = SpreadsheetApp.openById(SHEET_ID);
+    [mainSheet(book), pendingSheet(book)].forEach(sheet => {
+      const rows = readRows(sheet);
+      for (let r = rows.length - 1; r >= 0; r--) if (String(rows[r]["Email"]).trim().toLowerCase() === email) sheet.deleteRow(rows[r]._row);
+    });
+  } finally {
+    lock.releaseLock();
+  }
+  return true;
+}
+
+// Signups nobody confirmed within LINK_HOURS are deleted (we don't keep data we can't use).
+function purgeExpired(pending) {
+  const rows = readRows(pending), limit = Date.now() - LINK_HOURS * 3600 * 1000;
+  for (let r = rows.length - 1; r >= 0; r--) {
+    const t = new Date(rows[r]["Signed up"]).getTime();
+    if (t && t < limit) pending.deleteRow(rows[r]._row);
+  }
+}
+
+// The bottom of every email: who sends it, why, and a one-click way out.
+// Use footerText/footerHtml in any newsletter you send from this script too.
+function footerText(email) {
+  return "\n\n--\nDostávaš to, lebo si sa prihlásil na jergusino.com.\n" +
+    "Odhlásiť sa: " + unsubscribeUrl(email) + "\n" +
+    "Jergušino · " + (SENDER_ADDRESS ? SENDER_ADDRESS + " · " : "") + "jergusino.com · Súkromie: " + PRIVACY_URL;
+}
+
+function footerHtml(email) {
+  return '<p style="margin:32px 0 0;padding-top:16px;border-top:1px solid #333;font-size:12px;line-height:1.5;color:#8c897c;font-family:Georgia,serif">' +
+    'Dostávaš to, lebo si sa prihlásil na jergusino.com. <a href="' + unsubscribeUrl(email) + '" style="color:#FAF1D6">Odhlásiť sa</a><br>' +
+    'Jergušino · ' + (SENDER_ADDRESS ? SENDER_ADDRESS.replace(/[&<>"]/g, "") + ' · ' : '') +
+    '<a href="https://jergusino.com" style="color:#8c897c">jergusino.com</a> · <a href="' + PRIVACY_URL + '" style="color:#8c897c">Súkromie</a></p>';
 }
 
 // ---------- Helpers ----------
@@ -176,7 +250,7 @@ function sendConfirmation(email, token) {
   const text =
     "Ahoj,\n\nniekto (dúfam, že ty) chce na túto adresu dostávať súbory zadarmo od Jergušina.\n\n" +
     "Potvrď to tu: " + link + "\n\n" +
-    "Odkaz platí " + LINK_HOURS + " hodín. Ak to nie si ty, tento e-mail ignoruj a nič sa nestane.\n\nJergušino";
+    "Odkaz platí " + LINK_HOURS + " hodín. Ak to nie si ty, tento e-mail ignoruj a nič sa nestane.\n\nJergušino" + footerText(email);
   const html =
     '<div style="background:#060909;padding:32px 24px;font-family:Georgia,serif;color:#FAF1D6">' +
     '<img src="' + SITE_URL + 'assets/img/wordmark.svg" alt="Jergušino" width="150" style="display:block;width:150px;height:auto;border:0">' +
@@ -184,7 +258,7 @@ function sendConfirmation(email, token) {
     '<p style="margin:0 0 24px;font-size:17px;line-height:1.5;color:#FAF1D6">Niekto (dúfam, že ty) chce na túto adresu dostávať súbory zadarmo odo mňa. Potvrď to kliknutím nižšie.</p>' +
     '<p style="margin:0 0 24px"><a href="' + link + '" style="display:inline-block;border:2px solid #FAF1D6;padding:14px 22px;color:#FAF1D6;text-decoration:none;font-size:17px">áno, pošli mi súbory <span style="color:#FFC600">&rarr;</span></a></p>' +
     '<p style="margin:0;font-size:14px;line-height:1.5;color:#FAF1D6">Odkaz platí ' + LINK_HOURS + ' hodín. Ak to nie si ty, tento e-mail ignoruj a nič sa nestane.</p>' +
-    '</div>';
+    footerHtml(email) + '</div>';
   sendMail(email, "Potvrď e-mail a získaj súbory zadarmo", text, html);
 }
 
@@ -193,7 +267,7 @@ function sendConfirmation(email, token) {
  * - If a Brevo API key is saved (Project Settings → Script properties → BREVO_API_KEY),
  *   it sends from SENDER_EMAIL (e.g. no-reply@jergusino.com) through Brevo.
  * - Otherwise, or if Brevo fails, it falls back to sending from this Google account.
- * Replies go to REPLY_TO, if set, so "reply unsubscribe" still reaches you.
+ * Replies go to REPLY_TO, if set. Every email also carries a one-click unsubscribe link (footer + header).
  * Keys live in Script properties, never in this file, because this file is public on GitHub.
  */
 function sendMail(to, subject, text, html) {
@@ -205,6 +279,8 @@ function sendMail(to, subject, text, html) {
   if (key) {
     const payload = { sender: { name: FROM_NAME, email: sender }, to: [{ email: to }], subject: subject, htmlContent: html, textContent: text };
     if (replyTo) payload.replyTo = { email: replyTo };
+    // Lets Gmail/Apple Mail show their own "Unsubscribe" button (one click, no email needed).
+    payload.headers = { "List-Unsubscribe": "<" + unsubscribeUrl(to) + ">", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" };
     const res = UrlFetchApp.fetch("https://api.brevo.com/v3/smtp/email", {
       method: "post",
       contentType: "application/json",
@@ -239,8 +315,8 @@ function page(lead, title, message) {
     '</head><body class="project newsletter">' +
     '<header class="top"><a class="top-mark" href="' + SITE_ROOT + '" target="_top" aria-label="Jergušino, domov">' +
     '<img src="' + SITE_URL + 'assets/img/wordmark.svg" alt="" width="1020" height="262"></a>' +
-    '<nav class="top-nav" aria-label="Hlavná navigácia"><a href="' + SITE_ROOT + 'projects/" target="_top">projekty ' + arrow + '</a>' +
-    '<a href="' + SITE_URL + '#kontakt" target="_top">kontakt</a></nav></header>' +
+    '<nav class="top-nav" aria-label="Hlavná navigácia"><a href="' + SITE_ROOT + 'plagaty/" target="_top">plagáty ' + arrow + '</a>' +
+    '<a href="' + SITE_ROOT + 'kontakt/" target="_top">kontakt</a></nav></header>' +
     '<main><section class="hero hero--page hero--project"><div class="lockup">' +
     '<p class="lead' + desc + '">' + esc(lead) + '</p><h1 class="title">' + esc(title) + '</h1></div></section>' +
     '<article class="prose"><p class="big">' + esc(message) + '</p>' +
